@@ -13,6 +13,8 @@ Description of data formats and processing of observational data recorded by APO
 ### Meta data
 - **stations_fessthh.txt**: Meta data of APOLLO and WXT stations for FESST@HH 2020
 - **stations_fesstval.txt**: Meta data of APOLLO and WXT stations for FESSTVaL 2021
+- **APOLLO_serials.txt**: Serial numbers of APOLLO data loggers 
+- **APOLLO_calibration.txt**: Calibration constants (bias) of APOLLO NTC thermometers
 
 ## APOLLO data formats
 ### Level 0
