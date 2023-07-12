@@ -5,8 +5,8 @@
 Script to convert level1 APOLLO (Autonomous cold POoL LOgger) and 
 WXT data to level2 daily .nc-files complying with the SAMD data standard
 
-Data structure needed in datadir: ./<YYYY>/<MM>/<DD>/<APOLLO,WXT>-<SSS,SS>_<YYYYMMDD>.txt
-Output data structure in outdir: ./<YYYY>/<MM>/<DD>/fessthh_uhh_<instr>_l2_<var>_v00_<YYYYMMDDhhmmss>.nc
+Data structure needed in data_dir: ./<YYYY>/<MM>/<DD>/<APOLLO,WXT>-<SSS,SS>_<YYYYMMDD>.txt
+Output data structure in out_dir: ./<YYYY>/<MM>/<DD>/fval_uhh_<instr>_l2_<var>_v00_<YYYYMMDDhhmmss>.nc
 
 Processing steps:
     - removing values outside plausible ranges
@@ -23,11 +23,11 @@ Dependences on non-standard software:
 - fesstval_routines.py 
 
 Required meta data files:
-- stations_fessthh.txt
-- APOLLO_serials.txt    
-- APOLLO_calibration.txt
+- stations_fesstval.txt
+- APOLLO_serials.txt  
+- APOLLO_calibration.txt  
     
-Last updated: 5 February 2021
+Last updated: 21 April 2022
 """
 
 import numpy as np
@@ -43,39 +43,35 @@ import fesstval_routines as fst
 t_run = dt.datetime.now()
 #----------------------------------------------------------------------------
 # General settings
-maindir          = '.'
-datadir_apo      = maindir+'APOLLO_data/level1/'
-outdir_apo       = maindir+'APOLLO_data/level2/'
-datadir_wxt      = maindir+'WXT_data/level1/'
-datadir_wxt_perm = maindir+'Wettermast_data/2020_FESSTHH/'
-outdir_wxt       = maindir+'WXT_data/level2/'
-plotdir          = maindir+'Cold-Pools/Plots/APOLLO_Quicklooks/'
-meta_file        = maindir+'FESSTVaL/FESSTHH/stations_fessthh.txt'
-serial_file      = maindir+'FESSTVaL/APOLLO/apollo_serials.txt'
-cali_file        = maindir+'FESSTVaL/APOLLO/apollo_calibration.txt'
+maindir     = '.'
+datadir_apo = maindir+'APOLLO_data/level1/'
+datadir_wxt = maindir+'WXT_data/level1/'
+outdir_apo  = maindir+'APOLLO_data/level2/' 
+outdir_wxt  = maindir+'WXT_data/level2/' 
+plotdir     = maindir+'Cold-Pools/Plots/FESSTVaL2021_Quicklooks/'
+logdir      = maindir+'FESSTVaL/'
+meta_file   = maindir+'FESSTVaL/stations_fesstval.txt'
+serial_file = maindir+'FESSTVaL/APOLLO/apollo_serials.txt'
+cali_file   = maindir+'FESSTVaL/APOLLO/apollo_calibration.txt'
 
-start_date = dt.date(2020,6,1)
-end_date   = dt.date(2020,8,31)
+start_date = dt.date(2021,5,17)
+end_date   = dt.date(2021,8,27)
 
 #type_proc = 'APOLLO'
-type_proc = 'WXT'
+type_proc  = 'WXT'
 
-write_data  = False
+write_data = False
+quicklook  = False
+log_stats  = False
 
 #----------------------------------------------------------------------------
 # Processing settings
-
-wxt_permanent = {'002MIw':'WXT_WMH',
-                 '004MIw':'WXT_BBG'}
 time_res      = {'APOLLO':1, 
                  'WXT':10}
-outdirs      = {'APOLLO':outdir_apo, 
+outdirs       = {'APOLLO':outdir_apo, 
                  'WXT':outdir_wxt}
-
 cali_apollo   = fst.apollo_calibration(califile=cali_file)
 
-
-quicklook = False
 
 if quicklook:
     fs  = 12 #fontsize of plot
@@ -121,86 +117,46 @@ PP_n_run           = 30        # (s) Time window of running median filter
 # Removing implausible values compared to network mean
 space_consistency   = True       # APOLLO
 TT_diff_mean        = 15         # (K) Max. allowed difference from network mean
-apollo_erroneous_tt = [11,15,26] # Erroneous loggers
+apollo_erroneous_tt = [3,9]      # Erroneous loggers
 TT_diff_mean_err    = 2          # (K) Max. allowed difference from network mean
                                  # for erroneous instruments
 t_windows_err       = 900        # (s) Time window removed around values detected
-                                 # by TT_diff_mean_err                     
-
+                                 # by TT_diff_mean_err 
+                                 
+# Removing constant values (only PP)  
+constant_removal    = True       # APOLLO 
+n_unique_pp         = 10         # Minimum number of unique values per day
+t_windows_const     = 10         # (s) Time window for calculating rolling var  
+                         
 
 # Calibration of temperature sensors
 calibration        = True
 
 
 # Smoothing of time series for selected sensors
-data_smoothing     = True      # Only APOLLO
+data_smoothing     = False      # Only APOLLO
 t_smooth           = 5          # s
-smooth_tt          = ['113PGa'] # Senors of single stations      
+smooth_tt          = [''] # Senors of single stations      
 
 
 # Manually removing specific periods with erroneous measurements
-periods_remove_tt   = {'093PGa':[dt.datetime(2020,8,15,11,0),dt.datetime(2020,8,15,18,0)],
-                       '051OGa':[dt.datetime(2020,7,30,9,55),dt.datetime(2020,7,30,10,5)],
+periods_remove_tt   = {'028Ea':[dt.datetime(2021,7,10,16,30),dt.datetime(2021,7,11,13,50)],
+                       '051Fa':[dt.datetime(2021,6,24,15,30),dt.datetime(2021,6,24,21,10)],
                       }
 
-periods_remove_pp   = {'040UHa':[dt.datetime(2020,9,4,13,30),dt.datetime(2020,9,5,0,0)],
+periods_remove_pp   = {'050Ea':[dt.datetime(2021,6,16,10,50),dt.datetime(2021,6,16,11,10)],
+                       '028Ea':[dt.datetime(2021,7,10,16,30),dt.datetime(2021,7,11,13,50)],
                       }
-
-
-# periods influenced by warm air of local ventilation system
-periods_remove_039  = {dt.date(2020,6,12): [dt.time(6,30),dt.time(9,0)],
-                       dt.date(2020,6,15): [dt.time(5,0),dt.time(6,30)],
-                       dt.date(2020,6,16): [dt.time(4,0),dt.time(5,0)],
-                       dt.date(2020,6,18): [dt.time(4,0),dt.time(4,30)],
-                       dt.date(2020,6,19): [dt.time(4,0),dt.time(18,30)],
-                       dt.date(2020,6,22): [dt.time(4,0),dt.time(13,30)],
-                       dt.date(2020,6,23): [dt.time(5,0),dt.time(16,0)],
-                       dt.date(2020,6,25): [dt.time(4,0),dt.time(9,30)],
-                       dt.date(2020,6,26): [dt.time(4,30),dt.time(6,30)],
-                       dt.date(2020,6,29): [dt.time(4,0),dt.time(18,30)],
-                       dt.date(2020,6,30): [dt.time(4,0),dt.time(18,30)],
-                       dt.date(2020,7,1):  [dt.time(4,0),dt.time(6,30)],
-                       dt.date(2020,7,3):  [dt.time(4,0),dt.time(8,30)],
-                       dt.date(2020,7,4):  [dt.time(5,0),dt.time(15,30)],
-                       dt.date(2020,7,6):  [dt.time(4,0),dt.time(16,30)],
-                       dt.date(2020,7,7):  [dt.time(4,0),dt.time(18,30)],
-                       dt.date(2020,7,8):  [dt.time(4,0),dt.time(18,30)],
-                       dt.date(2020,7,9):  [dt.time(4,0),dt.time(18,30)],
-                       dt.date(2020,7,10): [dt.time(7,0),dt.time(14,30)],
-                       dt.date(2020,7,13): [dt.time(4,30),dt.time(5,30)],
-                       dt.date(2020,7,14): [dt.time(4,0),dt.time(6,30)],
-                       dt.date(2020,7,20): [dt.time(4,0),dt.time(6,0)],
-                       dt.date(2020,7,21): [dt.time(4,0),dt.time(16,30)],
-                       dt.date(2020,7,22): [dt.time(4,0),dt.time(15,0)],
-                       dt.date(2020,7,23): [dt.time(4,0),dt.time(14,30)],
-                       dt.date(2020,7,24): [dt.time(4,30),dt.time(13,0)],
-                       dt.date(2020,7,27): [dt.time(4,0),dt.time(6,0)],
-                       dt.date(2020,7,28): [dt.time(4,0),dt.time(16,0)],
-                       dt.date(2020,7,29): [dt.time(4,0),dt.time(18,30)],
-                       dt.date(2020,7,30): [dt.time(4,0),dt.time(13,30)],
-                       dt.date(2020,8,7):  [dt.time(4,0),dt.time(5,0)],
-                       dt.date(2020,8,10): [dt.time(5,30),dt.time(10,30)],
-                       dt.date(2020,8,11): [dt.time(4,0),dt.time(13,30)],
-                       dt.date(2020,8,12): [dt.time(4,0),dt.time(9,0)],
-                       dt.date(2020,8,13): [dt.time(4,0),dt.time(12,0)],
-                       dt.date(2020,8,14): [dt.time(6,30),dt.time(12,0)],
-                       dt.date(2020,8,17): [dt.time(4,30),dt.time(8,30)],
-                       dt.date(2020,8,18): [dt.time(5,30),dt.time(14,0)],
-                       dt.date(2020,8,19): [dt.time(4,30),dt.time(9,0)],
-                       dt.date(2020,8,20): [dt.time(4,30),dt.time(13,0)],
-                       dt.date(2020,8,27): [dt.time(4,0),dt.time(14,0)],
-                       dt.date(2020,8,28): [dt.time(4,0),dt.time(13,30)],
-                       dt.date(2020,8,31): [dt.time(4,0),dt.time(9,30)],
-                       }
 
 #----------------------------------------------------------------------------
 # Definition of level 2 data format
 
-meas_type       = 'fessthh'  # Campaign
+meas_type       = 'fval'     # Campaign
 institution     = 'uhh'      # Responsible Institution
 version_dataset = 0          # In case of new dataset version number difference 
                              # needs to explained in History section
-version_proc    = '1.0'      # Version number of this python script                                           
+version_proc    = '2.0'      # Version number of this python script
+                             # 1.0 = fessthh, 2.0=fesstval                                           
 
 
 def write_netcdf_file(varstr,dataframe_write,meta_write,type_instr=type_proc,
@@ -235,25 +191,25 @@ def write_netcdf_file(varstr,dataframe_write,meta_write,type_instr=type_proc,
                 'FB':'Wind speed maximum (gust)',
                 'DD':'Wind direction',
                 'RR':'Precipitation amount',
-                'HA':'Hail amount',
+                'HA':'Number of hail hits',
                 }
     
     if type_instr == 'APOLLO': 
         ht_str = 'HT_'+varstr 
         source = 'APOLLO (Autonomous cold POoL LOgger), '+ \
-                 'logger software version 114a9'
+                 'logger software version 115'
         lsd_tt = 2
     if type_instr == 'WXT': 
         ht_str = 'HT_WXT'
         source = 'Vaisala Weather Transmitter WXT536 with external Pt1000 thermometer, '+ \
-                 'logger software version 2.2b'
+                 'logger software version 2.2c'
         lsd_tt = None         
                  
     t_ave = t_res #if varstr not in ['TT','PP','RH'] else 0     
     
     # File naming and creation
     dtime    = dataframe_write.index[0]
-    writedir = odir+dtime.strftime('%Y/%m/%d/') 
+    writedir = odir+dtime.strftime('%Y/%m/')  #'%Y/%m/%d/'
     dtstr    = dtime.strftime('%Y%m%d%H%M%S')
     if os.path.isdir(writedir) == False: os.makedirs(writedir)
     filename = writedir+kkk+'_'+sss+'_'+type_instr.lower()+'_l2_'+vnn[varstr]+\
@@ -335,8 +291,8 @@ def write_netcdf_file(varstr,dataframe_write,meta_write,type_instr=type_proc,
         ta.long_name             = 'air temperature'
         ta.units                 = 'K'
         if type_instr == 'APOLLO':
-            ta.comment           = 'Data of station 113PGa smoothed because of '+\
-                                   'higher noise level than usual'
+            ta.comment           = 'No calibration constants applied for '+\
+                                   'stations 072Ga, 075Ha and 092Ha' 
     
     if varstr == 'PP':
         pa                       = ncfile.createVariable(vnn[varstr],'f4',
@@ -417,7 +373,7 @@ def write_netcdf_file(varstr,dataframe_write,meta_write,type_instr=type_proc,
                                                          zlib=True,
                                                          complevel=c_level)
         hail[:]                  = dataframe_write*10**4 # cm-2 -> m-2
-        hail.long_name           = 'amount of hail'
+        hail.long_name           = 'number of hail hits'
         hail.comment             = 'number of hail hits within measurement interval'
         hail.units               = 'm-2'
     
@@ -432,8 +388,8 @@ def write_netcdf_file(varstr,dataframe_write,meta_write,type_instr=type_proc,
     ncfile.Conventions       = 'CF-1.7 where applicable'
     ncfile.Processing_date   = dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')    
     ncfile.Author            = 'Bastian Kirsch (bastian.kirsch@uni-hamburg.de)'     
-    ncfile.Comments          = 'FESST@HH field experiment (June - August 2020),'+\
-                               ' doi:10.25592/uhhfdm.8967'
+    ncfile.Comments          = 'FESSTVaL field experiment (May - August 2021),'+\
+                               ' doi:10.25592/uhhfdm.9766'
     ncfile.Licence           = 'This data is licensed under a '+\
                                'Creative Commons Attribution-ShareAlike 4.0 '+\
                                'International License (CC-BY-SA-4.0).'   
@@ -447,22 +403,35 @@ print('Start Date: '+start_date.strftime('%Y-%m-%d'))
 print('End Date  : '+end_date.strftime('%Y-%m-%d'))
 
 # Station meta data
-meta_data = fst.fessthh_stations('all',include_ht=True,include_time=True,
-                                 include_serial=True,include_lcz=True,
-                                 metafile=meta_file,serialfile=serial_file)
+meta_data = fst.fesstval_stations('all',metafile=meta_file,serialfile=serial_file,
+                                  include_time=True,include_serial=True,
+                                  include_lcz=True)
 
 ii_type        = meta_data['STATION'].str.endswith(type_proc[0].lower())  
 ii_type_unique = ii_type & (meta_data['STATION'].duplicated() == False)
 
-meta_data['NAME'] = meta_data['NAME'].str.replace('ä','ae')
+
+if type_proc == 'APOLLO':
+    apo_miss_cali = []
+    for apo in meta_data[ii_type_unique]['APOLLO']:
+        if not np.isfinite(cali_apollo[apo]): apo_miss_cali.append(apo)
+    apo_miss_cali.sort()
+    # APOLLO  81 = 072Ga
+    # APOLLO  89 = 075Ha
+    # APOLLO 100 = 092Ha 
+
 meta_data['NAME'] = meta_data['NAME'].str.replace('ö','oe')
 meta_data['NAME'] = meta_data['NAME'].str.replace('ü','ue')
-meta_data['NAME'] = meta_data['NAME'].str.replace('Ö','Oe')
 meta_data['NAME'] = meta_data['NAME'].str.replace('ß','ss')
 
+if type_proc == 'APOLLO':
+    meta_data['HT_TT'] = 3 #(m)
+    meta_data['HT_PP'] = 2 #(m)
+    
+if type_proc == 'WXT': 
+    meta_data['HT_WXT'] = 3 #(m)
 
 days = pd.date_range(start=start_date,end=end_date,freq='d')
-time_res = {'APOLLO':1,'WXT':10}
 
 TT_removed   = pd.DataFrame(index=meta_data[ii_type_unique]['STATION'],columns=days)
 PP_removed   = pd.DataFrame(index=meta_data[ii_type_unique]['STATION'],columns=days)
@@ -479,7 +448,7 @@ for iday,d in enumerate(days):
     print(d.strftime('%Y-%m-%d'))
     
     #--------------------
-    print('Reading level 1 data')
+    print('Reading level 1 '+type_proc+' data')
     
     time = pd.date_range(start=d,periods=86400/time_res[type_proc],
                          freq=str(time_res[type_proc])+'s')        
@@ -517,22 +486,23 @@ for iday,d in enumerate(days):
             if (d.date() >= stat_start.date()) and (d.date() <= stat_end.date()): 
                 s = meta_data.loc[ii][type_proc]
                 stat_instr[stat].append(s)
+                
+                sdata = fst.read_fesstval_level1(type_proc,s,d.year,d.month,d.day,
+                                                 datadir_apollo=datadir_apo,
+                                                 datadir_wxt=datadir_wxt,
+                                                 include_monitoring_data=True,
+                                                 mute=True)
+                
                 if d.date() == stat_start.date(): 
                     stat_startend[stat][0] = np.where(time == stat_start)[0][0]
+                    # Needed for APOLLO 9 on 12 Aug 2021 (moved from 053Fa to 047Fa)
+                    sdata = sdata.loc[stat_start:dt.datetime(d.year,d.month,d.day,23,59,59)]
+                    
                 if d.date() == stat_end.date(): 
-                    stat_startend[stat][1] = np.where(time == stat_end)[0][0]    
+                    stat_startend[stat][1] = np.where(time == stat_end)[0][0]  
+                    # ...
+                    sdata = sdata.loc[dt.datetime(d.year,d.month,d.day,0,0,0):stat_end]
                 
-                if stat not in wxt_permanent.keys():
-                    sdata = fst.read_fesstval_level1(type_proc,s,d.year,d.month,d.day,
-                                                     datadir_apollo=datadir_apo,
-                                                     datadir_wxt=datadir_wxt,
-                                                     include_monitoring_data=True,
-                                                     mute=True)
-                else:
-                    sdata = fst.read_fesstval_wettermast(wxt_permanent[stat],
-                                                         d.year,d.month,d.day,
-                                                         datadir=datadir_wxt_perm)
-
             else:
                 sdata = pd.DataFrame()
             
@@ -646,6 +616,12 @@ for iday,d in enumerate(days):
                 for i in ii: mask[i-t_windows_err:i+t_windows_err] = True
                 TT_data[col].mask(mask,inplace=True)
                 
+    if constant_removal & (type_proc == 'APOLLO'):
+        ii_unique = (PP_data.nunique() >= 1) & (PP_data.nunique() < n_unique_pp)
+        for col in ii_unique[ii_unique].index: PP_data[col] = np.nan
+        
+        ii_const = PP_data.rolling(t_windows_const,min_periods=5).var().round(6) == 0
+        PP_data.mask(ii_const,inplace=True)
                 
     if calibration & (type_proc == 'APOLLO'):
         for col in meta_data[ii_type_unique]['STATION']:
@@ -654,7 +630,7 @@ for iday,d in enumerate(days):
             for i_apo,apo in enumerate(stat_instr[col]):
                 cali = cali_apollo[apo]
                 if np.isnan(cali):
-                    print('*** No calibration constant found for APOLLO '+str(apo)+' ***')
+                    #print('*** No calibration constant found for APOLLO '+str(apo)+' ***')
                     continue   
                 if n_instr == 1: 
                     TT_data[col] -= cali
@@ -675,27 +651,6 @@ for iday,d in enumerate(days):
             if col in meta_data[ii_type_unique]['STATION'].to_list():
                 ii1,ii2 = periods_remove_pp[col]
                 PP_data[col].mask((PP_data.index>=ii1)&((PP_data.index<=ii2)),inplace=True)
-    
-    # Single data at WXT Holm            
-    if ('047OGw' in meta_data[ii_type_unique]['STATION'].to_list()) & (d == dt.date(2020,6,20)):
-        col = '047OGw'
-        TT_data[col].mask(TT_data[col].notnull(),inplace=True)
-        PP_data[col].mask(PP_data[col].notnull(),inplace=True)
-        TTPT_data[col].mask(TTPT_data[col].notnull(),inplace=True)
-        RH_data[col].mask(RH_data[col].notnull(),inplace=True)
-        FF_data[col].mask(FF_data[col].notnull(),inplace=True)
-        FB_data[col].mask(FB_data[col].notnull(),inplace=True)
-        DD_data[col].mask(DD_data[col].notnull(),inplace=True)
-        RR_data[col].mask(RR_data[col].notnull(),inplace=True)
-        HA_data[col].mask(HA_data[col].notnull(),inplace=True)    
-                
-    if '039UHa' in meta_data[ii_type_unique]['STATION'].to_list():
-        for dd in periods_remove_039.keys():
-            if dd == d:
-                ii1,ii2 = periods_remove_039[dd]
-                TT_data['039UHa'].mask((TT_data.index.time>=ii1)&\
-                                       ((TT_data.index.time<=ii2)),inplace=True)                     
-                    
         
     if data_smoothing:
         for col in smooth_tt:
@@ -734,24 +689,82 @@ for iday,d in enumerate(days):
             write_netcdf_file('HA',HA_data,meta_data[ii_type_unique])
            
             
-    if quicklook:
+    if quicklook & (type_proc == 'APOLLO'):
         
-        fig,ax = plt.subplots(2,1,figsize=(9,8),dpi=150)
+        stat_id = TT_data.columns
+        
+        cmap = mpl.cm.tab10#nipy_spectral
+        norm = mpl.colors.BoundaryNorm(np.arange(11),cmap.N,clip=True)
     
-        ax[0].plot(TT_data,linewidth=0.7)
-        ax[0].set_title(d.strftime('APOLLO Level 2, %d %b %Y'))
-        ax[0].set_ylabel('Temperature (°C)')
         
-        ax[1].plot(PP_data,linewidth=0.5)
-        ax[1].set_ylabel('Pressure (hPa)')
+        fig,ax = plt.subplots(2,1,figsize=(7,6),dpi=150)
+        
+        for i in range(len(stat_id)):
+            c = cmap(norm(int(stat_id[i][:2]))) 
+            ax[0].plot(TT_data[stat_id[i]],linewidth=0.7,color=c,label=stat_id[i])
+            ax[1].plot(PP_data[stat_id[i]],linewidth=0.7,color=c)
+            
+        ax[0].set_title(d.strftime('APOLLO Level 2 data, %d %B %Y'),loc='left',
+                        fontsize=12)
+        ax[0].set_ylabel('Temperature (°C)',fontsize=12)
+        ax[0].legend(fontsize=8,ncol=3,bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax[1].set_ylabel('Pressure (hPa)',fontsize=12)
+        ax[1].set_xlabel('Time (UTC)',fontsize=12)
+        
         
         for x in [0,1]:
             ax[x].xaxis.set_major_formatter(mpl.dates.DateFormatter('%H:%M'))
-                
-        plotname = plotdir+type_proc+d.strftime('_level2_%Y%m%d')+'.png'
+            ax[x].set_xlim([TT_data.index[0],TT_data.index[-1]])
+        
+        plotname = plotdir+d.strftime('apollo_level2_%Y%m%d.png')
         fig.savefig(plotname,bbox_inches='tight')
         plt.close()    
         print('Plot done!') 
+        
+    if quicklook & (type_proc == 'WXT'):
+        
+        stat_id = TT_data.columns
+        
+        cmap = mpl.cm.tab20
+        norm = mpl.colors.BoundaryNorm(np.arange(19),cmap.N,clip=True)
+        
+        lw = 0.8
+    
+        fig,ax = plt.subplots(3,2,figsize=(12,8),dpi=150)
+        
+        for i in range(len(stat_id)):
+            c = cmap(norm(i)) 
+            ax[0,0].plot(TT_data[stat_id[i]],linewidth=lw,color=c)
+            ax[1,0].plot(PP_data[stat_id[i]],linewidth=lw,color=c)
+            ax[2,0].plot(RH_data[stat_id[i]],linewidth=lw,color=c)
+            ax[0,1].plot(FF_data[stat_id[i]],linewidth=lw,color=c,label=stat_id[i])
+            ax[1,1].plot(FB_data[stat_id[i]],linewidth=lw,color=c)
+            ax[2,1].plot(RR_data[stat_id[i]],linewidth=lw,color=c)
+            
+        ax[0,0].set_title(d.strftime('WXT Level 2 data, %d %B %Y'),loc='left',
+                          fontsize=12)
+        ax[0,0].set_ylabel('Temperature (°C)',fontsize=12)
+        ax[1,0].set_ylabel('Pressure (hPa)',fontsize=12)
+        ax[2,0].set_ylabel('Relative Humidity (%)',fontsize=12)
+        ax[0,1].set_ylabel('Wind Speed (m/s)',fontsize=12)
+        ax[1,1].set_ylabel('Wind Gust (m/s)',fontsize=12)
+        ax[2,1].set_ylabel('Rain Amount (mm)',fontsize=12)
+        
+        ax[0,1].legend(fontsize=8,ncol=2,bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        for i in [0,1]: ax[2,i].set_xlabel('Time (UTC)',fontsize=12)
+        for i in [0,1,2]: ax[i,1].set_ylim([0,ax[i,1].get_ylim()[1]])
+        
+        for x in [0,1]:
+            for y in [0,1,2]:
+                ax[y,x].xaxis.set_major_formatter(mpl.dates.DateFormatter('%H'))
+                ax[y,x].set_xlim([TT_data.index[0],TT_data.index[-1]])
+        
+        plt.tight_layout()
+        plotname = plotdir+d.strftime('wxt_level2_%Y%m%d.png')
+        fig.savefig(plotname,bbox_inches='tight')
+        plt.close()    
+        print('Plot done')     
 
 
 def print_statistics(removed_data,var):
@@ -771,18 +784,60 @@ def print_statistics(removed_data,var):
 print(' ')
 print('*********')
 print('Total number of single measurements removed:')
-print_statistics(TT_removed,'TT')
-print_statistics(PP_removed,'PP')           
+if type_proc == 'APOLLO':
+    print_statistics(TT_removed,'TT')
+    print_statistics(PP_removed,'PP')           
     
 if type_proc == 'WXT':
     print_statistics(TTPT_removed,'TTPT')
+    print_statistics(PP_removed,'PP')
     print_statistics(RH_removed,'RH')
     print_statistics(FF_removed,'FF')
     print_statistics(FB_removed,'FB')
     print_statistics(DD_removed,'DD')
     print_statistics(RR_removed,'RR')
     print_statistics(HA_removed,'HA')
-  
+    
+if log_stats:
+    print(' ')
+    print('Logging statistics of removed measurements to file')   
+    
+    
+    def log_statistics(removed_data,var,type_data=type_proc,log=logdir,base=maindir):
+
+        filename = log+'data_removed_fesstval_level2_'+type_data.lower()+'_'+var.lower()+'.txt'
+        
+        header1 = 'FESSTVaL '+type_data+' level 2 removed single '+var+' measurements,'+\
+                  ' data base = '+base+dt.datetime.now().strftime(' (%Y-%m-%d %H:%M LT)')
+        header2 = 'DATE'
+        for s in removed_data.index: header2 = header2+';'+s 
+        
+        wfile = open(filename,'w')
+        wfile.write(header1+'\n')
+        wfile.write(header2+'\n')
+        wfile.close()
+        
+        removed_data.transpose().to_csv(filename,mode='a',index=True,
+                                        header=False,sep=';',na_rep='',
+                                        date_format='%Y%m%d')
+        return
+    
+    if type_proc == 'APOLLO':
+        log_statistics(TT_removed,'TT')
+        log_statistics(PP_removed,'PP')           
+        
+    if type_proc == 'WXT':
+        log_statistics(TTPT_removed,'TTPT')
+        log_statistics(PP_removed,'PP')
+        log_statistics(RH_removed,'RH')
+        log_statistics(FF_removed,'FF')
+        log_statistics(FB_removed,'FB')
+        log_statistics(DD_removed,'DD')
+        log_statistics(RR_removed,'RR')
+        log_statistics(HA_removed,'HA')
+    
+   
 #----------------------------------------------------------------------------
-print('*********')
+print(' ')
+print('*** Finshed! ***')
 fst.print_runtime(t_run)

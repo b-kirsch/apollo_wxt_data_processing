@@ -2,7 +2,7 @@
 """
 @author: Bastian Kirsch (bastian.kirsch@uni-hamburg.de)
 
-Functions used for processing FESST@HH 2020 data
+Functions used for processing FESST@HH 2020 and FESSTVaL 2021 data
 
 Last updated: 6 July 2023
 """
@@ -73,51 +73,71 @@ def correct_apollo_date_advanced(datestr):
 def correct_apollo_time_advanced(timestr):
     if type(timestr) != str: return timestr
     return timestr.zfill(6)
-
-def correct_time_drift(dt_log,dt_gps,gps,tdrift_tol):
     
-    ntime = len(dt_log)
+def correct_time_drift(dt_log,dt_gps,tdrift_tol=300,return_msg=False):
     
-    if len(dt_gps) != ntime:
-        print('*** Lengths of DTLOG and DTGPS are not the same! ***')
-        return np.array([])
+    if dt_gps.shape != dt_log.shape:
+        msg = 'DTLOG and DTGPS do not have the same shape'
+        print(msg)
+        if not return_msg:
+            return pd.DataFrame()
+        else:
+            return pd.DataFrame(),msg
+        
+    # Convert logger time and GPS time to unixtime
+    ut_log = pd.Series(datetime_to_unixtime(dt_log))
+    ut_gps = pd.Series(datetime_to_unixtime(dt_gps))
     
-    seconds_corr   = np.zeros(ntime)
-    diff_syn       = np.zeros(ntime)   # Synchronity of gradients
-    ut_log         = datetime_to_unixtime(dt_log)
-    ut_gps         = datetime_to_unixtime(dt_gps)
-    drift_sec      = ut_log-ut_gps
-
-    with np.errstate(invalid='ignore'):
-        ii_gps           = np.where((gps == 1) & (drift_sec <= tdrift_tol))[0]
-        diff_ut_log      = np.append(np.nan,np.diff(ut_log[ii_gps]))
-        diff_ut_gps      = np.append(np.nan,np.diff(ut_gps[ii_gps]))
-        diff_syn[ii_gps] = diff_ut_gps/diff_ut_log
-        ii_valid         = np.where(diff_syn == 1)[0]
+    # Calculate time drift in seconds
+    drift_sec = ut_log-ut_gps
     
-    if len(ii_valid) == 0:
-        n_hh = ntime//3600
-        hh_str = ' (data length = '+str(n_hh)+' h)' if n_hh > 0 else '' 
-        print('*** No valid GPS time found'+hh_str+' ***')
-        return np.array([])
+    # Define valid time drifts by maximum (absoulte) tolerance
+    valid_drift = (drift_sec.abs() <= tdrift_tol)
     
-    drift_sec_max = drift_sec[ii_valid].max()
-    if drift_sec_max > 600:
-        pstr = str(int(drift_sec_max//60.))+' min ***'
-        print('*** Maximum difference between logger time and GPS time of '+pstr)
-        print('*** Number of valid time steps used: '+str(len(ii_valid))+' ***')   
+    # Calculate synchronity (equality of time steps)
+    diff_sync = ut_gps[valid_drift].diff()/ut_log[valid_drift].diff()
+    #diff_sync = ut_gps.diff()/ut_log.diff()
     
-    # Writes time drift (in sec) into seconds_corr for every valid time drift point 
-    # until next valid point is found (with constant extrapolating at beginning 
-    # and end of time array)
-    for i,t_index in enumerate(ii_valid):
-        i_start = t_index if i > 0 else 0
-        i_end = ii_valid[i+1] if i < len(ii_valid)-1 else len(dt_log)
-        seconds_corr[i_start:i_end] = drift_sec[t_index]
-
-    dt_corr = unixtime_to_datetime(datetime_to_unixtime(dt_log)-seconds_corr)
+    # Define synchronized time steps
+    valid_sync = (diff_sync == 1)
     
-    return dt_corr
+    # Determine valid GPS time steps
+    valid_gps = (valid_drift & valid_sync)
+    n_valid   = valid_gps.sum()
+    n_tot     = dt_log.shape[0]
+    
+    if n_valid == 0:
+        if n_tot >= 3600:
+            msg = 'No valid GPS time for {:d} hour(s) of data'.format(n_tot//3600)
+            print(msg)
+        else:
+            msg = ''
+        if not return_msg:
+            return pd.DataFrame()
+        else:
+            return pd.DataFrame(),msg
+    
+    msg = ''
+    drift_max = drift_sec[valid_gps].max()
+    if drift_max > 60:
+        msg = 'Maximum time drift of {:d} seconds'.format(drift_max)+\
+              ' (valid time steps = {:d})'.format(n_valid)
+        print(msg) 
+        
+    # Create array of time drift-correcting seconds by padding (=forward-filling) 
+    # valid time drifts to next valid time drift (with backward-filling at beginning)    
+    drift_sec[~valid_gps] = np.nan   
+    corr_sec = drift_sec.fillna(method='ffill')
+    fvi = corr_sec.first_valid_index()
+    corr_sec.iloc[:fvi] = corr_sec.iloc[fvi]
+        
+    # Correct logger time 
+    dt_corr = unixtime_to_datetime(ut_log-corr_sec)
+    
+    if not return_msg:
+        return dt_corr
+    else:
+        return dt_corr,msg 
     
 
 def extract_val(sstr,varstr,varendstr,return_str=False):
@@ -150,7 +170,8 @@ def apollo_status(status_float,status_len):
         return ''
     
 
-def read_apollo_level0(filename,status_str='CGMWLT',header_only=False):
+def read_apollo_level0(filename,status_str='CGMWLT',header_only=False,
+                       return_msg=False):
     
     if os.path.isfile(filename) == False:
         print('File '+filename+' does not exist!')
@@ -179,8 +200,12 @@ def read_apollo_level0(filename,status_str='CGMWLT',header_only=False):
     try:
         header_str = pd.read_csv(filename,header=None,nrows=1)[0][0]
     except ValueError:
-        print('Header of file '+filename+' could not be correctly read!')
-        return pd.DataFrame({})      
+        msg = 'Header of file could not be correctly read'
+        print(msg)
+        if not return_msg:
+            return pd.DataFrame()
+        else:
+            return pd.DataFrame(),msg     
         
     i_year     = header_str.find('START_DATE=') 
     year_str   = header_str[i_year+11:i_year+15]
@@ -201,16 +226,20 @@ def read_apollo_level0(filename,status_str='CGMWLT',header_only=False):
         data = pd.read_csv(filename,header=1,sep=';',names=list(data_columns_type.keys()),
                            dtype=data_columns_type)
     except ValueError:
-        print('File '+filename+' could not be correctly read!')
-        return pd.DataFrame({})   
+        msg= 'File could not be correctly read'
+        print(msg)
+        if not return_msg:
+            return pd.DataFrame()
+        else:
+            return pd.DataFrame(),msg       
     
-    if data.empty: return data
-            
-    
-    if (int(year_str) < 2019) or (int(year_str) > dt.datetime.now().year):
-        print('*** File year of '+filename+' is smaller than 2019 or greater than '+\
-              str(dt.datetime.now().year)+' ***')
-        return pd.DataFrame()  
+    if data.empty: 
+        msg= 'File is empty'
+        print(msg)
+        if not return_msg:
+            return data
+        else:
+            return data,msg  
     
     data.status   = status_str
     data.serial   = serial_str
@@ -222,26 +251,28 @@ def read_apollo_level0(filename,status_str='CGMWLT',header_only=False):
     if data['DATELOG'][0][0] == '0':
         data['DATELOG'] = data['DATELOG'].apply(correct_apollo_date)
     else:
-        print('*** WARNING: File '+os.path.basename(filename)+\
-              ' probably misses leading zeros ***')
+        print('File probably misses leading zeros, advanced correction applied')
         data['DATELOG'] = data['DATELOG'].apply(correct_apollo_date_advanced) 
         data['TIMELOG'] = data['TIMELOG'].apply(correct_apollo_time_advanced)
         data['DATEGPS'] = data['DATEGPS'].apply(correct_apollo_date_advanced) 
         data['TIMEGPS'] = data['TIMEGPS'].apply(correct_apollo_time_advanced)
         
     if data['DATELOG'][0] == '0101':
-        print('*** WARNING: File '+filename+' probably has a wrong time stamp '+\
-              '(data starts on 1 Jan)! ***')    
+        print('File probably has a wrong time stamp (starts on 1 Jan)')    
     
     try:        
         data['DTLOG']   = pd.to_datetime(year_str+data['DATELOG']+data['TIMELOG'],\
-                                         format='%Y%m%d%H%M%S')#,errors='coerce'
+                                         format='%Y%m%d%H%M%S',errors='coerce')
         data['DTGPS']   = pd.to_datetime((year_str+data['DATEGPS']+data['TIMEGPS']),\
                                          format='%Y%m%d%H%M%S',errors='coerce').\
                                          fillna(dt.datetime(2000,1,1,0,0,0))   
     except ValueError:
-        print('Timestamp of file '+filename+' could not be correctly read!')
-        return pd.DataFrame({})   
+        msg = 'Timestamp of file could not be correctly read'
+        print(msg)
+        if not return_msg:
+            return pd.DataFrame()
+        else:
+            return pd.DataFrame(),msg    
                                      
         
     data['PP_BME'] = data['PP_BME']/100.
@@ -251,7 +282,10 @@ def read_apollo_level0(filename,status_str='CGMWLT',header_only=False):
     for i,s in enumerate(status_str): 
         data[dict_status[s]] = data['STATUS_BIN'].str[i].astype(float)   
     
-    return data
+    if not return_msg:
+        return data
+    else:
+        return data,''
 
 
 def read_wxt_level0(wxt,yy,mm,dd,datadir=maindir+'WXT_data/level0/'):
@@ -479,6 +513,9 @@ def read_fesstval_level2(stat_type,var_str,yy,mm,dd,dataset_version=0,
     if stat_type == 'A': stat_type = 'APOLLO'
     if stat_type == 'W': stat_type = 'WXT'
     if stat_type not in ['APOLLO','WXT']: stat_type = 'APOLLO'
+    campaign = 'fval' 
+    if yy == 2019: campaign = 'prefval'
+    if yy == 2020: campaign = 'fessthh'
     
     var_dict = {'TT':'ta',
                 'PP':'pa',
@@ -502,8 +539,8 @@ def read_fesstval_level2(stat_type,var_str,yy,mm,dd,dataset_version=0,
         print('Variable '+var_str+' is not available! Pick one of '+str(var_list)) 
         return pd.DataFrame()
         
-    filedate = dt.date(yy,mm,dd)
-    filename = datadir+filedate.strftime('%Y/%m/%d/')+'fessthh_uhh_'+stat_type.lower()+\
+    filedate = dt.date(yy,mm,dd)  # ('%Y/%m/%d/')
+    filename = datadir+filedate.strftime('%Y/%m/')+campaign+'_uhh_'+stat_type.lower()+\
                '_l2_'+var_dict[var_str]+'_v'+str(dataset_version).zfill(2)+'_'+\
                filedate.strftime('%Y%m%d000000.nc')
                     
@@ -541,8 +578,8 @@ def read_fesstval_level2(stat_type,var_str,yy,mm,dd,dataset_version=0,
         meta['LCZ']   = ds['lcz'].values.astype(str).astype(object)
         
         return data,meta #.round(2)
-        
-        
+  
+  
 def read_fesstval_wettermast(stat_str,yy,mm,dd,
                              datadir=maindir+'Wettermast_data/2020_FESSTHH/'):
     
@@ -830,19 +867,18 @@ def fessthh_stations(nn,find='NAME',metafile=maindir+'FESSTVaL/FESSTHH/stations_
 
 
 def fesstval_stations(nn,find='STATION',metafile=maindir+'FESSTVaL/stations_fesstval.txt',
-                     serialfile=maindir+'FESSTVaL/APOLLO/apollo_serials.txt',
-                     include_ht=False,include_time=False,include_serial=False,
-                     include_lcz=False):
+                      serialfile=maindir+'FESSTVaL/APOLLO/apollo_serials.txt',
+                      include_time=False,include_serial=False,include_lcz=False):
     
     
     if find.upper() == 'A': find = 'APOLLO'
     if find.upper() == 'W': find = 'WXT'
-    # if find.upper() == 'S': find = 'SERIAL'
-    #if find.upper() == 'L': find = 'LCZ'
+    if find.upper() == 'S': find = 'SERIAL'
+    if find.upper() == 'L': find = 'LCZ'
     if find.upper() == 'N': find = 'NAME'
     
     if find == 'SERIAL': include_serial = True
-    # if find == 'LCZ': include_lcz = True
+    if find == 'LCZ': include_lcz = True
     
     if find not in ['STATION','NAME','APOLLO','WXT','SERIAL','LCZ']: find = 'STATION'
     
@@ -867,11 +903,9 @@ def fesstval_stations(nn,find='STATION',metafile=maindir+'FESSTVaL/stations_fess
     data['APOLLO'] = data['APOLLO'].apply(lambda x: int(x) if type(x) == str else 0)
     data['WXT']    = data['WXT'].apply(lambda x: int(x) if type(x) == str else 0)
     data['START']  = data['START'].apply(lambda x: pd.to_datetime(x,format='%Y%m%d %H%M'))
-    # data['END']    = data['END'].apply(lambda x: pd.to_datetime(x,format='%Y%m%d %H%M'))
-    # data['END'].fillna(dt.datetime(2099,12,31,23,59,59),inplace=True)
-    if include_serial:
-        data['SERIAL'] = data['APOLLO'].apply(lambda x: apollo_serial(x,serialfile=serialfile) \
-                                          if x > 0 else '')   
+    data['END']    = data['END'].apply(lambda x: pd.to_datetime(x,format='%Y%m%d %H%M'))
+    data['SERIAL'] = data['APOLLO'].apply(lambda x: apollo_serial(x,serialfile=serialfile) \
+                                      if x > 0 else '')   
     
     if find == 'STATION': 
         #ii_find = data[find].str.startswith(str(nn).zfill(3)).values 
@@ -890,11 +924,23 @@ def fesstval_stations(nn,find='STATION',metafile=maindir+'FESSTVaL/stations_fess
         ii_find = (data['STATION'].to_frame().duplicated(keep='last') == False)
         
     if nn == 'all':
-        ii_find = data['STATION'].notnull()   
+        ii_find = data['STATION'].notnull() 
+        
+    if not include_time:
+        data.drop('START',1,inplace=True)
+        data.drop('END',1,inplace=True)  
+    if include_serial == False:
+        data.drop('SERIAL',1,inplace=True)    
+    if include_lcz == False:
+        data.drop('LCZ',1,inplace=True)    
+    if find in ['APOLLO','SERIAL']:    
+        data.drop('WXT',1,inplace=True) 
+    if find == 'WXT':    
+        data.drop('APOLLO',1,inplace=True) 
+        
+    data.drop('MAINT',1,inplace=True)  
     
-    data.drop(['END','LCZ'],1,inplace=True)  
-    
-    return data[ii_find]  
+    return data[ii_find]
 
 
 def wxt_extent_filedir(wxt_file):

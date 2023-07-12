@@ -12,9 +12,9 @@ Dependences on non-standard software:
 - fesstval_routines.py 
 
 Required meta data files:
-- stations_fessthh.txt
+- stations_fesstval.txt
 
-Last updated: 8 July 2020
+last updated: 19 October 2021
 
 """
 
@@ -31,90 +31,93 @@ t_run = dt.datetime.now()
 maindir   = '.'
 datadir   = maindir+'WXT_data/level0/'
 outdir    = maindir+'WXT_data/level1/' 
-meta_file = maindir+'FESSTVaL/FESSTHH/stations_fessthh.txt'
+meta_file = maindir+'FESSTVaL/stations_fesstval.txt'
 
-start_date = dt.date(2020,4,29)
-end_date   = dt.date(2020,9,4)
+start_date = dt.date(2021,4,29)
+end_date   = dt.date(2021,9,1)
 
 wxt_start  = 1  #1
 wxt_end    = 21 #21
 
-overwrite_data  = True
+overwrite_data = True
+log_to_file    = True
+only_fesstval  = True
 
-ht_wxt_set = np.nan
 
-# Manually corrected data due to incorrect time stamps:
-# - WXT02, 16.06.2020 after 11:59:21 UTC
-# - WXT02, 29.06.2020 after 21:31:35 UTC
-# - WXT08, 22.06.2020 after 17:08:55 UTC 
-# - WXT12, 08.06.2020 after 06:34:11 UTC
-
-# CR manually inserted:
-# - WXT09, 06.08.2020 after 16:31:50 UTC
-
-# Corrupt line remove:
-# - WXT06, 16.08.2020 after 07:17:00 UTC
-
+'''
+Manually corrected data due to incorrect time stamps:
+- WXT01 after 01.07.2021 02:18:25 (2 timesteps corrected)
+- WXT02 after 11.08.2021 23:11:03 (61 timesteps corrected)
+- WXT03 after 08.07.2021 13:20:12 (4 timesteps deleted)
+- WXT13 after 18.05.2021 06:55:48 (4 timesteps deleted)
+- WXT16 after 28.08.2021 11:00:44 (1 timestep deleted)
+'''
 
 #----------------------------------------------------------------------------
 print('Processing WXT level 0 data')
+print('WXT Start :',wxt_start)
+print('WXT End   :',wxt_end)
+print('Date Start:',start_date)
+print('Date End  :',end_date)
 if overwrite_data:
     print('Overwriting is enabled')
 else:
     print('Overwriting is disabled')
 
+if log_to_file:
+    print('logging to file is enabled')
+    if not os.path.isdir('log'): os.mkdir('log')
+    log_file = dt.datetime.now().strftime('log/log_wxt_l0_l1_%Y%m%d_%H%M.txt')
+    
+    def print_to_file(message,log=log_file):
+        with open(log,'a') as f:
+            print(message,file=f)
+        return 
+else:
+    print('logging to file is disabled')    
+        
+
 header3 = '#TIME(UTC);TT(degC);TT_PT1000(degC);PP(hPa);RH(%);'+\
           'FF(m/s);FB(m/s);DD(deg);RR(mm);HAIL_HITS(1/cm2);U_SUPPLY(V)'
+          
+ht_wxt = 3 # m above ground          
         
-def wdata_wxt(f):
-    return str(f).replace('nan','')
-
 def wdata_dd(f):
     try:
         return '{:d}'.format(int(f)) 
     except ValueError:
-        return ''         
+        return ''      
+    
+stations  = fst.fesstval_stations('all',metafile=meta_file,include_time=True)
+ii_wxt    = stations['STATION'].str.endswith('w')  
 
 for wxt in range(wxt_start,wxt_end+1):
-    wxt_dir = datadir + 'WXT_'+str(wxt).zfill(2)+'/'
-    station_info = fst.fessthh_stations(wxt,find='WXT',include_ht=True,
-                                        include_time=True,metafile=meta_file)
+    iwxt = stations[ii_wxt]['WXT'] == wxt
+    station_info = stations[ii_wxt][iwxt]
     nstat = len(station_info.index)
     
-    if station_info.empty == False:
-        station_name    = station_info['NAME'].values
-        station_lat     = station_info['LAT'].values
-        station_lon     = station_info['LON'].values
-        station_alt     = station_info['ALT'].values
-        station_ht_wxt  = station_info['HT_WXT'].values
-        station_start   = pd.to_datetime(station_info['START'].values)
-        station_end     = pd.to_datetime(station_info['END'].values)
-        print_stat_info = ''
-        for s in station_name: print_stat_info += s+' / '
-        print_stat_info = print_stat_info[:-3]
-    else:
-        print_stat_info = ''
+    if station_info.empty: continue
+        
+    station_start = station_info['START'].squeeze()
+    station_end   = station_info['END'].squeeze()
+    station_lat   = station_info['LAT'].squeeze()
+    station_lon   = station_info['LON'].squeeze()
+    station_alt   = station_info['ALT'].squeeze()
 
     print('')
-    print('WXT '+str(wxt).zfill(2)+' '+print_stat_info)
+    print('WXT '+str(wxt).zfill(2)+' '+station_info['NAME'].squeeze())
     
-    if nstat > 1:
-        print('*** Multiple station information found for this device! ***')
-
-    if os.path.isdir(wxt_dir) == False:
+    wxtdir = datadir+'WXT_'+str(wxt).zfill(2)+'/'
+    month_list = os.listdir(wxtdir) 
+    
+    if not os.path.isdir(wxtdir) or (len(month_list) == 0):
         print('No data available!')
         continue
     
-    month_list = os.listdir(wxt_dir) 
-    
-    if len(month_list) == 0:
-        print('No data available!')
-        continue  
-    
     available_data = []
     for mm in month_list:
-        file_list = os.listdir(wxt_dir+mm+'/')
-        for f in file_list: available_data.append(wxt_dir+mm+'/'+f)
+        file_list = os.listdir(wxtdir+mm+'/')
+        for f in file_list: available_data.append(wxtdir+mm+'/'+f)
     available_dates = [f.split('/')[-2]+os.path.splitext(os.path.basename(f))[0][-2:] \
                        for f in available_data] 
         
@@ -143,27 +146,22 @@ for wxt in range(wxt_start,wxt_end+1):
     
     days = pd.date_range(start=start_date_read,end=end_date,freq='d') 
     
-    days_stat = [pd.date_range(start=station_start[s].date(),\
-                               end=station_end[s].date(),freq='d') \
-                 for s in range(nstat)]
-    
     if len(days) == 0: print('No files to process found!')
 
     for d in days:
-        if d.strftime('%Y%m%d') not in available_dates: continue
-    
-        istat = -1
-        for s in range(nstat):
-            if d.date() in days_stat[s]:
-                istat = s
-                break
-            
-        if (d.date() < station_start[istat].date()) or (d.date() > station_end[istat].date()):
+        if d.strftime('%Y%m%d') not in available_dates: 
             continue
+  
+        if (d.date() < station_start.date()) or (d.date() > station_end.date()):
+            if only_fesstval: continue
         
-        print('Writing data for '+d.strftime('%Y-%m-%d'))
-        data = fst.read_wxt_level0(wxt,d.year,d.month,d.day)
-        if data.empty: continue
+        print(d.strftime('%Y-%m-%d'))
+        data = fst.read_wxt_level0(wxt,d.year,d.month,d.day,datadir=datadir)
+        if data.empty: 
+            msg = 'WXT'+str(wxt).zfill(2)+d.strftime(' %Y-%m-%d: ')+\
+                  'File could not be read or does not exist'
+            if log_to_file: print_to_file(msg)
+            continue
         
         # Remove potential negative jumps in timestamp
         data.set_index('DTIME',inplace=True)
@@ -182,9 +180,12 @@ for wxt in range(wxt_start,wxt_end+1):
             data_ut = fst.datetime_to_unixtime(data.index)
             ut_diff = np.diff(data_ut)
             
-        if nt_remove >= 2:
-            print('*** WARNING: '+str(nt_remove)+' time steps removed due to '+\
-                  'negative jumps at '+dt_jump.strftime('%Y-%m-%d %H:%M:%S UTC')+' ***')
+        if nt_remove >= 5:
+            msg = 'WXT'+str(wxt).zfill(2)+d.strftime(' %Y-%m-%d: ')+\
+                  str(nt_remove)+' time steps removed due to negative jumps at '+\
+                      dt_jump.strftime('%H:%M:%S UTC')
+            print(msg)
+            if log_to_file: print_to_file(msg)
             
         # Create regular time grid (shift data to next full 10s time step)
         dt_grid = pd.date_range(start=d,freq='10s',periods=8640)    
@@ -204,6 +205,19 @@ for wxt in range(wxt_start,wxt_end+1):
         alt = np.nanmedian(data_wxt['ALT']) if data_wxt['ALT'].notnull().sum() > 0 else np.nan
         fw  = data.firmware
         
+        write_lat = station_lat if only_fesstval else lat
+        write_lon = station_lon if only_fesstval else lon
+        write_alt = station_alt if only_fesstval else alt
+        
+        if (np.abs(lat-station_lat) > 0.001) or (np.abs(lon-station_lon) > 0.002):
+            msg = 'WXT'+str(wxt).zfill(2)+d.strftime(' %Y-%m-%d: ')+\
+                  'Geographical coordinates in file deviate from nominal coordinates'
+            if only_fesstval:      
+                print(msg)
+                print('Nominal Coordinates:',str(station_lat),str(station_lon))
+                print('File Coordinates   :',str(lat),str(lon))
+                if log_to_file: print_to_file(msg)
+        
         if data_wxt['TT'].isnull().all():
             print('No valid TT data found!')
             continue
@@ -212,9 +226,13 @@ for wxt in range(wxt_start,wxt_end+1):
         iid        = serial_msg.find('Id=')
         serial     = serial_msg[iid+3:iid+11]
         
+        # Convert Integer data to nullable data type to ensure correct writing format
+        data_wxt['DD'] = data_wxt['DD'].astype('Int16')
+        
         # Drop data before start or after end of meausurements
-        ii_invalid = (data_wxt.index < station_start[istat]) | (data_wxt.index > station_end[istat])
-        if ii_invalid.sum() > 0: data_wxt.drop(data_wxt.index[ii_invalid],inplace=True)
+        if only_fesstval:
+            ii_invalid = (data_wxt.index < station_start) | (data_wxt.index > station_end)
+            if ii_invalid.sum() > 0: data_wxt.drop(data_wxt.index[ii_invalid],inplace=True)
         
         # Writing data to file        
         writedir = outdir+d.strftime('%Y/%m/%d/')
@@ -228,17 +246,12 @@ for wxt in range(wxt_start,wxt_end+1):
                 print('File already exisists and overwriting is disabled!')
                 continue
             
-        if istat == -1:
-            lat_write,lon_write,alt_write,ht_wxt_write = lat,lon,alt,ht_wxt_set
-            print('*** WARNING: Station coordinates from file are used ***')
-        else:
-            lat_write,lon_write    = station_lat[istat],station_lon[istat]
-            alt_write,ht_wxt_write = station_alt[istat],station_ht_wxt[istat]
-            
         header1 = '#DATE='+d.strftime('%Y%m%d')+',WXT='+str(wxt).zfill(2)+\
                   ',SERIAL='+serial+',FW='+fw  
-        header2 = '#LAT={:.5f}N,'.format(lat_write)+'LON={:.5f}E,'.format(lon_write)+\
-                  'ALT={:.1f}M,'.format(alt_write)+'H_WXT={:.1f}M'.format(ht_wxt_write)
+        header2 = '#LAT={:.5f}N,'.format(write_lat)+\
+                  'LON={:.5f}E,'.format(write_lon)+\
+                  'ALT={:.1f}M,'.format(write_alt)+\
+                  'H_WXT={:.1f}M'.format(ht_wxt)
         
         wfile = open(writefile,'w')
         wfile.write(header1+'\n')
@@ -246,24 +259,13 @@ for wxt in range(wxt_start,wxt_end+1):
         wfile.write(header3+'\n')
         wfile.close()
         
-        wdata = np.column_stack([data_wxt.index.strftime('%H%M%S'),
-                                 data_wxt['TT'].fillna(''),
-                                 data_wxt['TT_PT1000'].fillna(''),
-                                 data_wxt['PP'].fillna(''),
-                                 data_wxt['RH'].fillna(''),
-                                 data_wxt['FF'].fillna(''),
-                                 data_wxt['FB'].fillna(''),
-                                 data_wxt['DD'].apply(wdata_dd),
-                                 data_wxt['RR'].fillna(''),
-                                 data_wxt['HA'].fillna(''),
-                                 data_wxt['VS'].fillna(''),
-                                ])
-        
-        fmt = ['%s']*wdata.shape[1]
-        wfile = open(writefile,'ab')
-        np.savetxt(wfile,wdata,delimiter=';',fmt=fmt)
-        wfile.close()    
+        wvar = ['TT','TT_PT1000','PP','RH','FF','FB','DD','RR','HA','VS']
+        data_wxt[wvar].to_csv(writefile,mode='a',index=True,header=False,
+                              sep=';',na_rep='',date_format='%H%M%S',
+                              float_format='%1.1f')
 
 #----------------------------------------------------------------------------
-print('*********')
-fst.print_runtime(t_run)
+print(' ')
+print('*** Finshed! ***')
+runtime_str = fst.print_runtime(t_run,return_str=True)
+if log_to_file: print_to_file('*** '+runtime_str+' ***')
