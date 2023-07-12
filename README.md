@@ -4,7 +4,7 @@
 Description of data formats and processing of observational data recorded by APOLLO and WXT weather stations during field experiments FESST@HH 2020 and FESSTVaL 2021. Details on the instruments and experiments can be found in Kirsch et al. (2022) and Hohenegger et al. (2023).
 
 ## Files
-### Code
+### Code (different versions for FESST@HH 2020 and FESSTVaL 2021)
 - **apollo_level0_to_level1.py**: Converts APOLLO level 0 data to level 1 data
 - **wxt_level0_to_level1.py**: Converts WXT level 0 data to level 1 data
 - **fesstval_level1_to_level2.py**: Converts APOLLO and WXT level 1 data to level 2 data
